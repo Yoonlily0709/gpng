@@ -1,0 +1,701 @@
+<script>
+// ═══════════════════════════════════════
+// DATA & STATE
+// ═══════════════════════════════════════
+const EMOJIS = {1:'😩',2:'😕',3:'😐',4:'😊',5:'🤩'};
+const AVATAR_EMOJIS = ['🦔','🐣','🐼','🦊','🐸','🐧','🦁','🐨','🐮','🐯','🌸','🌻','🌈','⭐','🎯'];
+
+let currentUser = JSON.parse(localStorage.getItem('gong_user') || 'null');
+let posts       = JSON.parse(localStorage.getItem('gong_posts') || '[]');
+let friends     = JSON.parse(localStorage.getItem('gong_friends') || '{"following":[],"followers":[]}');
+
+let selectedRating = 0;
+let editRating = 0;
+let editingPostId = null;
+let uploadImgData = null;
+let avatarImgData = null;
+let calDate = new Date();
+let feedTab = 'recommended';
+let friendTabCurrent = 'search';
+
+// ── Demo users (simulated community) ──
+const DEMO_USERS = [
+  {uid:'u1', name:'수학요정✨', avatar:'🌸', posts:12, followers:34},
+  {uid:'u2', name:'영어마스터📖', avatar:'🐼', posts:7, followers:18},
+  {uid:'u3', name:'과학탐험가🔭', avatar:'🦊', posts:20, followers:55},
+  {uid:'u4', name:'역사왕👑', avatar:'🐧', posts:5, followers:9},
+  {uid:'u5', name:'코딩러버💻', avatar:'🦁', posts:15, followers:42},
+];
+
+// ── Seed demo posts ──
+function seedDemoPosts() {
+  if (posts.length > 0) return;
+  
+  const sampleData = [
+    { uid: 'u1', name: '수학요정✨', avatar: '🌸', content: '미적분학의 중심 극한 정리와 테일러 급수 전개를 공부했다. 오차항을 제어하는 방식이 핵심인 듯!', caption: '수학은 언제나 짜릿해 짜릿해...🔥', rating: 5 },
+    { uid: 'u2', name: '영어마스터📖', avatar: '🐼', content: '토익 빈출 영단어 100개 암기 및 실전 모의고사 1회 풀이 진행. 파트 7 시간 단축이 시급함.', caption: '오늘도 한 걸음 더! 🏃‍♂️💨', rating: 4 },
+    { uid: 'u3', name: '과학탐험가🔭', avatar: '🦊', content: '유기화학 알칸의 치환 반응 메커니즘 분석 및 SN1, SN2 반응의 입체 화학적 차이 정리.', caption: '머리 터질 것 같지만 해냈다 구조식 대박 구조 🤯', rating: 3 },
+    { uid: 'u5', name: '코딩러버💻', avatar: '🦁', content: '자바스크립트 비동기 처리(Promise, async/await)와 이벤트 루프의 동작 원리를 파헤쳤다.', caption: '디버깅 완료했을 때의 쾌감이란! 💻', rating: 5 }
+  ];
+
+  posts = sampleData.map((d, idx) => ({
+    id: 'demo_' + idx,
+    uid: d.uid,
+    username: d.name,
+    avatar: d.avatar,
+    studyContent: d.content,
+    caption: d.caption,
+    rating: d.rating,
+    img: null,
+    date: new Date(Date.now() - idx * 3600000 * 12).toISOString(),
+    likes: Math.floor(Math.random() * 15) + 3,
+    likedBy: [],
+    comments: [{ username: '공부조아', text: '와 정말 대단해요! 자극 받고 갑니다.' }],
+    quiz: generateQuizMock(d.content)
+  }));
+  
+  localStorage.setItem('gong_posts', JSON.stringify(posts));
+}
+
+function generateQuizMock(content) {
+  if (content.includes('미적분')) {
+    return { q: "테일러 급수에서 함수를 다항식으로 근사할 때 사용하는 중심 개념은?", opts: ["도함수를 이용한 국소 근사", "정적분의 평균값 정리", "치환적법"], ans: 0, exp: "테일러 급수는 특정 점에서 함수 각 차수의 도함수 값을 일치시켜 국소적으로 함수를 다항식 근사하는 기법입니다." };
+  }
+  if (content.includes('영단어')) {
+    return { q: "토익 파트 7에서 독해 시간을 단축하는 가장 효과적인 전략은?", opts: ["모든 문장 완벽 직독직해", "질문 먼저 읽고 키워드 스캐닝", "지문 마지막 문장만 읽기"], ans: 1, exp: "문제를 먼저 읽고 핵심 키워드를 파악한 후, 지문에서 해당 부분을 찾아 빠르게 읽는 스캐닝 기술이 핵심입니다." };
+  }
+  return { q: "오늘 기록된 공부 내용의 핵심 목적은 무엇일까요?", opts: ["개념의 심화 이해와 실전 적용", "단순 암기 및 시간 때우기", "시험 포기"], ans: 0, exp: "매일 작성하는 오답 노트와 학습 개념 요약은 메타인지를 높여 개념을 체계화하는 목적을 가집니다." };
+}
+
+// ═══════════════════════════════════════
+// AUTHENTICATION & INITIALIZATION
+// ═══════════════════════════════════════
+window._onLogin = function(user) {
+  currentUser = {
+    uid: user.uid,
+    name: user.name || user.email.split('@')[0],
+    avatar: user.photo || '🦔'
+  };
+  localStorage.setItem('gong_user', JSON.stringify(currentUser));
+  initializeAppState();
+};
+
+window._demoLogin = function() {
+  window._onLogin({ uid: 'demo_user', name: '공부하는 나 ✏️', email: 'demo@gongsta.com' });
+  showToast("데모 계정으로 로그인되었습니다.");
+};
+
+window._onLogout = function() {
+  localStorage.removeItem('gong_user');
+  currentUser = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('page-login').style.display = 'flex';
+};
+
+window.onload = function() {
+  seedDemoPosts();
+  if (currentUser) {
+    initializeAppState();
+  }
+};
+
+function initializeAppState() {
+  document.getElementById('page-login').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  initAvatarPicker();
+  goPage('home', document.querySelector('nav button'));
+  updateMyProfileStats();
+}
+
+// ═══════════════════════════════════════
+// NAVIGATION & PAGE ROUTING
+// ═══════════════════════════════════════
+function goPage(pageId, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  
+  const targetPage = document.getElementById('page-' + pageId);
+  if (targetPage) targetPage.classList.add('active');
+  if (btn) btn.classList.add('active');
+
+  if (pageId === 'home') renderFeed();
+  if (pageId === 'mypage') renderMyPage();
+  if (pageId === 'friends') renderFriends();
+  if (pageId === 'calendar') renderCalendar();
+}
+
+// ═══════════════════════════════════════
+// FEED MANAGEMENT (HOME)
+// ═══════════════════════════════════════
+function switchFeedTab(btn, tab) {
+  document.querySelectorAll('.feed-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  feedTab = tab;
+  renderFeed();
+}
+
+function renderFeed() {
+  const recContainer = document.getElementById('feed-recommended');
+  const mineContainer = document.getElementById('feed-mine');
+  
+  recContainer.innerHTML = '';
+  mineContainer.innerHTML = '';
+
+  let filteredPosts = [...posts].sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  if (feedTab === 'mine') {
+    recContainer.style.display = 'none';
+    mineContainer.style.display = 'block';
+    filteredPosts = filteredPosts.filter(p => p.uid === currentUser.uid);
+    if(filteredPosts.length === 0) mineContainer.innerHTML = '<p class="quiz-loading">아직 올린 게시물이 없습니다. ➕ 탭에서 첫 기록을 남겨보세요!</p>';
+  } else {
+    recContainer.style.display = 'block';
+    mineContainer.style.display = 'none';
+  }
+
+  filteredPosts.forEach(post => {
+    const isLiked = post.likedBy && post.likedBy.includes(currentUser.uid);
+    const postDate = new Date(post.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    
+    let imgHTML = '';
+    if (post.img) {
+      imgHTML = `<div class="post-img" onclick="openModal('${post.id}')"><img src="${post.img}" alt="공부 인증"></div>`;
+    } else {
+      imgHTML = `<div class="post-img-placeholder" style="background:${getRandomSoftColor(post.id)}" onclick="openModal('${post.id}')">📝</div>`;
+    }
+
+    let menuHTML = '';
+    if (post.uid === currentUser.uid) {
+      menuHTML = `
+        <div class="dropdown">
+          <button class="post-menu-btn" onclick="toggleDropdown(event, '${post.id}')">⋮</button>
+          <div class="dropdown-menu" id="drop-${post.id}">
+            <button onclick="openEditModal('${post.id}')">✏️ 수정하기</button>
+          </div>
+        </div>`;
+    }
+
+    let commentsHTML = post.comments.map(c => `<div class="comment"><strong>${c.username}</strong> ${c.text}</div>`).join('');
+
+    let quizHTML = '';
+    if (post.quiz) {
+      quizHTML = `
+        <div class="quiz-section">
+          <div class="quiz-header" onclick="toggleQuizBody('${post.id}')">
+            <span>🧠 오늘의 복습 퀴즈 (확인하려면 클릭)</span>
+            <span>▼</span>
+          </div>
+          <div class="quiz-body" id="quiz-body-${post.id}">
+            <div class="quiz-q">${post.quiz.q}</div>
+            <div class="quiz-options">
+              ${post.quiz.opts.map((opt, oIdx) => `<button class="quiz-opt" onclick="checkQuizAnswer(this, '${post.id}', ${oIdx})">${opt}</button>`).join('')}
+            </div>
+            <div class="quiz-explanation" id="quiz-exp-${post.id}" style="display:none;">💡 <strong>해설:</strong> ${post.quiz.exp}</div>
+          </div>
+        </div>`;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'post-card';
+    card.innerHTML = `
+      <div class="post-header">
+        <div class="post-avatar">${post.avatar.startsWith('http') ? `<img src="${post.avatar}">`: post.avatar}</div>
+        <div class="post-meta">
+          <div class="post-username">${post.username}</div>
+          <div class="post-date">${postDate}</div>
+        </div>
+        <div class="post-rating">${EMOJIS[post.rating] || '😐'}</div>
+        ${menuHTML}
+      </div>
+      ${imgHTML}
+      <div class="post-actions">
+        <button class="btn-action ${isLiked ? 'liked':''}" onclick="toggleLike('${post.id}')" style="color: ${isLiked ? '#e74c3c' : 'var(--text)'}">
+          <span class="icon">${isLiked ? '❤️':'🤍'}</span> <span class="like-count">${post.likes || 0}</span>
+        </button>
+        <button class="btn-action"><span class="icon">💬</span> ${post.comments.length}</button>
+      </div>
+      <div class="post-caption"><strong>${post.username}</strong> ${post.caption}</div>
+      <div class="post-study-content">${post.studyContent.replace(/\n/g, '<br>')}</div>
+      <div class="post-comments" id="comments-${post.id}">${commentsHTML}</div>
+      <div class="comment-input-row">
+        <input type="text" placeholder="응원의 댓글을 달아주세요..." id="input-${post.id}" onkeydown="if(event.key==='Enter')addComment('${post.id}')">
+        <button class="btn-send" onclick="addComment('${post.id}')">게시</button>
+      </div>
+      ${quizHTML}
+    `;
+
+    if (feedTab === 'mine') mineContainer.appendChild(card);
+    else recContainer.appendChild(card);
+  });
+}
+
+function getRandomSoftColor(seed) {
+  const colors = ['#fde8d4','#d4eafd','#d4fdda','#fdd4f5','#fdedd4','#e2f0d9','#ebdcf5'];
+  let num = 0;
+  for(let i=0; i<seed.length; i++) num += seed.charCodeAt(i);
+  return colors[num % colors.length];
+}
+
+// ── Dropdown / Like / Comment ──
+function toggleDropdown(e, postId) {
+  e.stopPropagation();
+  document.querySelectorAll('.dropdown-menu').forEach(m => {
+    if(m.id !== 'drop-'+postId) m.classList.remove('open');
+  });
+  document.getElementById('drop-'+postId).classList.toggle('open');
+}
+document.addEventListener('click', () => document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('open')));
+
+function toggleLike(postId) {
+  const post = posts.find(p => p.id === postId);
+  if (!post) return;
+  if (!post.likedBy) post.likedBy = [];
+
+  const idx = post.likedBy.indexOf(currentUser.uid);
+  if (idx > -1) {
+    post.likedBy.splice(idx, 1);
+    post.likes = Math.max(0, post.likes - 1);
+  } else {
+    post.likedBy.push(currentUser.uid);
+    post.likes = (post.likes || 0) + 1;
+  }
+  localStorage.setItem('gong_posts', JSON.stringify(posts));
+  renderFeed();
+  updateMyProfileStats();
+}
+
+function addComment(postId) {
+  const input = document.getElementById('input-' + postId);
+  if (!input || !input.value.trim()) return;
+  
+  const post = posts.find(p => p.id === postId);
+  if (post) {
+    post.comments.push({ username: currentUser.name, text: input.value.trim() });
+    localStorage.setItem('gong_posts', JSON.stringify(posts));
+    input.value = '';
+    renderFeed();
+  }
+}
+
+// ── Quiz Toggle & Check ──
+function toggleQuizBody(postId) {
+  document.getElementById('quiz-body-'+postId).classList.toggle('open');
+}
+
+function checkQuizAnswer(btn, postId, chosenIdx) {
+  const post = posts.find(p => p.id === postId);
+  if (!post || !post.quiz) return;
+
+  const opts = btn.parentElement.querySelectorAll('.quiz-opt');
+  opts.forEach(b => b.disabled = true);
+
+  if (chosenIdx === post.quiz.ans) {
+    btn.classList.add('correct');
+    showToast("정답입니다! 🎓 정밀 복습 완료.");
+  } else {
+    btn.classList.add('wrong');
+    opts[post.quiz.ans].classList.add('correct');
+    showToast("아쉽네요! 해설을 참고하세요.");
+  }
+  document.getElementById('quiz-exp-'+postId).style.display = 'block';
+}
+
+// ═══════════════════════════════════════
+// POST UPLOAD SYSTEM
+// ═══════════════════════════════════════
+function previewImg(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      uploadImgData = e.target.result;
+      let area = document.getElementById('uploadArea');
+      let preview = area.querySelector('.img-preview');
+      if(!preview) {
+        preview = document.createElement('img');
+        preview.className = 'img-preview';
+        area.appendChild(preview);
+      }
+      preview.src = uploadImgData;
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function selectRating(btn) {
+  document.querySelectorAll('#ratingRow .rating-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedRating = parseInt(btn.getAttribute('data-val'));
+}
+
+function uploadPost() {
+  const studyContent = document.getElementById('studyContent').value.trim();
+  const caption = document.getElementById('captionInput').value.trim();
+
+  if (!studyContent) { showToast("공부 내용을 작성해주세요!"); return; }
+  if (selectedRating === 0) { showToast("오늘의 공부 평가를 선택해주세요!"); return; }
+
+  const newPost = {
+    id: 'post_' + Date.now(),
+    uid: currentUser.uid,
+    username: currentUser.name,
+    avatar: currentUser.avatar,
+    studyContent: studyContent,
+    caption: caption || "오늘도 완독! 📝",
+    rating: selectedRating,
+    img: uploadImgData,
+    date: new Date().toISOString(),
+    likes: 0,
+    likedBy: [],
+    comments: [],
+    quiz: generateQuizMock(studyContent)
+  };
+
+  posts.unshift(newPost);
+  localStorage.setItem('gong_posts', JSON.stringify(posts));
+
+  // Reset Input Forms
+  document.getElementById('studyContent').value = '';
+  document.getElementById('captionInput').value = '';
+  selectedRating = 0;
+  uploadImgData = null;
+  document.querySelectorAll('#ratingRow .rating-btn').forEach(b => b.classList.remove('selected'));
+  const prevImg = document.getElementById('uploadArea').querySelector('.img-preview');
+  if(prevImg) prevImg.remove();
+
+  showToast("🌱 기록이 게시되었습니다!");
+  updateMyProfileStats();
+  goPage('home', document.querySelector('nav button'));
+}
+
+// ═══════════════════════════════════════
+// PROFILE & MY PAGE MANAGEMENT
+// ═══════════════════════════════════════
+function updateMyProfileStats() {
+  const myPosts = posts.filter(p => p.uid === currentUser.uid);
+  document.getElementById('stat-posts').innerText = myPosts.length;
+
+  // Calculate Streak
+  let streak = 0;
+  const dates = myPosts.map(p => new Date(p.date).toDateString());
+  const uniqueDates = [...new Set(dates)];
+  
+  let checkDate = new Date();
+  while(uniqueDates.includes(checkDate.toDateString())) {
+    streak++;
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+  document.getElementById('stat-streak').innerText = streak;
+
+  // Total hearts received
+  const hearts = myPosts.reduce((acc, p) => acc + (p.likes || 0), 0);
+  document.getElementById('stat-hearts').innerText = hearts;
+}
+
+function renderMyPage() {
+  updateMyProfileStats();
+  const profileAvatar = document.getElementById('profileAvatar');
+  const profileName = document.getElementById('profileName');
+  
+  if(currentUser.avatar.startsWith('http')) {
+    profileAvatar.innerHTML = `<img src="${currentUser.avatar}">`;
+  } else {
+    profileAvatar.innerText = currentUser.avatar;
+  }
+  profileName.innerText = currentUser.name;
+
+  const grid = document.getElementById('myGrid');
+  grid.innerHTML = '';
+  const myPosts = posts.filter(p => p.uid === currentUser.uid).sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  myPosts.forEach(post => {
+    const item = document.createElement('div');
+    item.className = 'grid-photo';
+    if(post.img) {
+      item.innerHTML = `<img src="${post.img}" onclick="openModal('${post.id}')">`;
+    } else {
+      item.innerHTML = `<div style="font-size:2rem;" onclick="openModal('${post.id}')">📝</div>`;
+    }
+    item.innerHTML += `
+      <div class="grid-photo-rating">${EMOJIS[post.rating]}</div>
+      <div class="grid-photo-actions">
+        <button onclick="openEditModal('${post.id}')">✏️</button>
+      </div>
+    `;
+    grid.appendChild(item);
+  });
+}
+
+// ── Profile Modification Modal ──
+function initAvatarPicker() {
+  const picker = document.getElementById('avatarPicker');
+  picker.innerHTML = AVATAR_EMOJIS.map(e => `<span class="avatar-opt" onclick="selectAvatarEmoji(this, '${e}')">${e}</span>`).join('');
+}
+
+function selectAvatarEmoji(el, emoji) {
+  document.querySelectorAll('.avatar-opt').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  avatarImgData = emoji;
+}
+
+function previewAvatar(input) {
+  if (input.files && input.files[0]) {
+    document.getElementById('avatarFileName').innerText = input.files[0].name;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      avatarImgData = e.target.result;
+      document.querySelectorAll('.avatar-opt').forEach(b => b.classList.remove('selected'));
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function openProfileEditModal() {
+  document.getElementById('editNameInput').value = currentUser.name;
+  avatarImgData = currentUser.avatar;
+  document.getElementById('profileEditModal').classList.add('open');
+}
+
+function saveProfile() {
+  const name = document.getElementById('editNameInput').value.trim();
+  if(!name) { showToast("닉네임을 입력하세요!"); return; }
+  
+  currentUser.name = name;
+  currentUser.avatar = avatarImgData;
+  localStorage.setItem('gong_user', JSON.stringify(currentUser));
+
+  // Sync with existing personal posts
+  posts.forEach(p => {
+    if(p.uid === currentUser.uid) {
+      p.username = name;
+      p.avatar = avatarImgData;
+    }
+  });
+  localStorage.setItem('gong_posts', JSON.stringify(posts));
+
+  document.getElementById('profileEditModal').classList.remove('open');
+  showToast("프로필이 변경되었습니다 ✨");
+  renderMyPage();
+}
+
+function closeProfileEdit(e) { if(e.target.classList.contains('modal-overlay')) e.target.classList.remove('open'); }
+
+// ═══════════════════════════════════════
+// POST EDIT / DELETE SYSTEM
+// ═══════════════════════════════════════
+function openEditModal(postId) {
+  editingPostId = postId;
+  const post = posts.find(p => p.id === postId);
+  if(!post) return;
+
+  document.getElementById('editStudyContent').value = post.studyContent;
+  document.getElementById('editCaption').value = post.caption;
+  editRating = post.rating;
+  
+  document.querySelectorAll('#editRatingRow .rating-btn').forEach(b => {
+    if(parseInt(b.getAttribute('data-val')) === editRating) b.classList.add('selected');
+    else b.classList.remove('selected');
+  });
+
+  document.getElementById('editModal').classList.add('open');
+}
+
+function selectEditRating(btn) {
+  document.querySelectorAll('#editRatingRow .rating-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  editRating = parseInt(btn.getAttribute('data-val'));
+}
+
+function saveEditPost() {
+  const post = posts.find(p => p.id === editingPostId);
+  if(post) {
+    post.studyContent = document.getElementById('editStudyContent').value.trim();
+    post.caption = document.getElementById('editCaption').value.trim();
+    post.rating = editRating;
+    
+    localStorage.setItem('gong_posts', JSON.stringify(posts));
+    document.getElementById('editModal').classList.remove('open');
+    showToast("🔄 게시물이 수정되었습니다.");
+    renderFeed();
+    renderMyPage();
+  }
+}
+
+function deletePost() {
+  if(confirm("정말 이 기록을 삭제하시겠습니까?")) {
+    posts = posts.filter(p => p.id !== editingPostId);
+    localStorage.setItem('gong_posts', JSON.stringify(posts));
+    document.getElementById('editModal').classList.remove('open');
+    showToast("🗑️ 기록이 삭제되었습니다.");
+    renderFeed();
+    renderMyPage();
+  }
+}
+function closeEditModal(e) { if(e.target.classList.contains('modal-overlay')) e.target.classList.remove('open'); }
+
+// ═══════════════════════════════════════
+// DETAIL VIEW MODAL
+// ═══════════════════════════════════════
+function openModal(postId) {
+  const post = posts.find(p => p.id === postId);
+  if (!post) return;
+
+  const mImg = document.getElementById('modalImg');
+  if(post.img) mImg.innerHTML = `<img src="${post.img}">`;
+  else mImg.innerHTML = `<div style="font-size:5rem;">📝</div>`;
+
+  document.getElementById('modalRating').innerText = EMOJIS[post.rating] + " " + (post.rating === 5 ? "완벽해!":"");
+  document.getElementById('modalStudy').innerText = post.studyContent;
+  document.getElementById('modalCaption').innerText = post.caption;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal(e) { if(e.target.classList.contains('modal-overlay') || e.target.tagName === 'BUTTON') document.getElementById('modal').classList.remove('open'); }
+
+// ═══════════════════════════════════════
+// FRIENDS MANAGEMENT
+// ═══════════════════════════════════════
+function switchFriendTab(btn, tab) {
+  document.querySelectorAll('.tab-friend').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  friendTabCurrent = tab;
+
+  document.getElementById('friend-search-pane').style.display = tab === 'search' ? 'block' : 'none';
+  document.getElementById('friend-following-pane').style.display = tab === 'following' ? 'block' : 'none';
+  document.getElementById('friend-followers-pane').style.display = tab === 'followers' ? 'block' : 'none';
+  renderFriends();
+}
+
+function renderFriends() {
+  if (friendTabCurrent === 'search') {
+    const sug = document.getElementById('friendSuggest');
+    sug.innerHTML = '';
+    DEMO_USERS.forEach(user => {
+      if(friends.following.includes(user.uid)) return;
+      sug.appendChild(createFriendCard(user, false));
+    });
+  } else if (friendTabCurrent === 'following') {
+    const list = document.getElementById('followingList');
+    list.innerHTML = '';
+    if(friends.following.length === 0) { list.innerHTML = '<p class="quiz-loading">팔로잉하는 친구가 없습니다.</p>'; return; }
+    DEMO_USERS.filter(u => friends.following.includes(u.uid)).forEach(user => {
+      list.appendChild(createFriendCard(user, true));
+    });
+  } else if (friendTabCurrent === 'followers') {
+    const list = document.getElementById('followersList');
+    list.innerHTML = '<p class="quiz-loading">나를 팔로우하는 사람이 아직 없습니다.</p>';
+  }
+}
+
+function createFriendCard(user, isFollowing) {
+  const card = document.createElement('div');
+  card.className = 'friend-card';
+  card.innerHTML = `
+    <div class="f-avatar">${user.avatar}</div>
+    <div class="f-info">
+      <div class="f-name">${user.name}</div>
+      <div class="f-stat">게시물 ${user.posts} · 팔로워 ${user.followers}</div>
+    </div>
+    <button class="btn-follow ${isFollowing ? 'unfollow':'follow'}" onclick="toggleFollow('${user.uid}')">
+      ${isFollowing ? '언팔로우':'팔로우'}
+    </button>
+  `;
+  return card;
+}
+
+function toggleFollow(uid) {
+  const idx = friends.following.indexOf(uid);
+  if(idx > -1) {
+    friends.following.splice(idx, 1);
+    showToast("팔로우를 취소했습니다.");
+  } else {
+    friends.following.push(uid);
+    showToast("친구를 팔로우했습니다! 👥");
+  }
+  localStorage.setItem('gong_friends', JSON.stringify(friends));
+  renderFriends();
+}
+
+function searchFriends() {
+  const val = document.getElementById('friendSearchInput').value.trim().toLowerCase();
+  const res = document.getElementById('friendSearchResults');
+  res.innerHTML = '';
+  if(!val) return;
+
+  const found = DEMO_USERS.filter(u => u.name.toLowerCase().includes(val));
+  if(found.length === 0) { res.innerHTML = '<p class="quiz-loading">검색 결과가 없습니다.</p>'; return; }
+  found.forEach(user => {
+    res.appendChild(createFriendCard(user, friends.following.includes(user.uid)));
+  });
+}
+
+// ═══════════════════════════════════════
+// STUDY CALENDAR SYSTEM
+// ═══════════════════════════════════════
+function changeMonth(dir) {
+  calDate.setMonth(calDate.getMonth() + dir);
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const title = document.getElementById('calTitle');
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+
+  const year = calDate.getFullYear();
+  const month = calDate.getMonth();
+  title.innerText = `${year}년 ${month + 1}월`;
+
+  // Weekday labels
+  const days = ['일','월','화','수','목','금','토'];
+  days.forEach(d => grid.innerHTML += `<div class="cal-day-label">${d}</div>`);
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const lastDate = new Date(year, month + 0, 0).getDate(); // Previous month last day structure fallback or standard
+  const totalDays = new Date(year, month + 1, 0).getDate();
+
+  // Blank filler cells
+  for(let i=0; i<firstDay; i++) {
+    grid.innerHTML += `<div class="cal-cell empty"></div>`;
+  }
+
+  // Monthly personal entries mapping
+  const myPosts = posts.filter(p => p.uid === currentUser.uid);
+  const entryMap = {};
+  myPosts.forEach(p => {
+    const d = new Date(p.date);
+    if(d.getFullYear() === year && d.getMonth() === month) {
+      entryMap[d.getDate()] = p;
+    }
+  });
+
+  const today = new Date();
+
+  for(let day=1; day<=totalDays; day++) {
+    const post = entryMap[day];
+    let cellHTML = `<span>${day}</span>`;
+    let hasEntryClass = post ? 'has-entry' : '';
+    let isTodayClass = (today.getFullYear()===year && today.getMonth()===month && today.getDate()===day) ? 'today' : '';
+
+    if (post) {
+      cellHTML += `<div class="cal-emoji">${EMOJIS[post.rating]}</div>`;
+    }
+
+    const cell = document.createElement('div');
+    cell.className = `cal-cell ${hasEntryClass} ${isTodayClass}`;
+    cell.innerHTML = cellHTML;
+    if(post) {
+      cell.onclick = () => openModal(post.id);
+    }
+    grid.appendChild(cell);
+  }
+}
+
+// ═══════════════════════════════════════
+// UTILS & TOAST NOTIFICATION
+// ═══════════════════════════════════════
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.innerText = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2300);
+}
+</script>
